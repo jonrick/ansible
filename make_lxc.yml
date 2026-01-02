@@ -71,4 +71,5 @@
         executable: /bin/bash
 
     - name: Show VMID and IP
-      ansible.builti
+      ansible.builtin.debug:
+        msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }} and IP {{ lxc_ip }}"
