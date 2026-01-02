@@ -1,7 +1,7 @@
-- name: Create LXC on Proxmox node with auto VMID and IP
+- name: Create LXC on Proxmox
   hosts: proxmox
   gather_facts: false
-  become: true  # run commands as root on Proxmox host
+  become: true
 
   vars:
     lxc_hostname_prefix: "test-lxc"
@@ -11,38 +11,33 @@
     lxc_swap: 512
     lxc_disk: 8
     lxc_bridge: "vmbr0"
-    subnet_base: "192.168.12"    # first three octets of your subnet
-    ip_start: 42                 # starting last octet for LXCs
-    ip_end: 254                  # max last octet
+    subnet_base: "192.168.12"
+    ip_start: 42
+    ip_end: 254
 
   tasks:
+
     - name: Get list of existing VMIDs
       ansible.builtin.shell: "pct list | awk 'NR>1 {print $1}'"
-      args:
-        executable: /bin/bash
       register: existing_vms
 
     - name: Determine next available VMID
       ansible.builtin.set_fact:
         lxc_vmid: >-
-          {{ (existing_vms.stdout_lines | map('int') | list | max) + 1
-             if existing_vms.stdout_lines else 901 }}
+          {{ (existing_vms.stdout_lines | map('int') | list | max + 1) if existing_vms.stdout_lines else 901 }}
 
     - name: Get list of currently assigned LXC IPs
       ansible.builtin.shell: "pct list | awk 'NR>1 {print $6}' | cut -d'/' -f1"
-      args:
-        executable: /bin/bash
       register: existing_ips
+
+    - name: Convert existing IP last octets to integers
+      ansible.builtin.set_fact:
+        existing_ips_last_octet: "{{ existing_ips.stdout_lines | map('split', '.') | map('last') | map('int') | list }}"
 
     - name: Determine next available IP last octet
       ansible.builtin.set_fact:
         lxc_ip_last_octet: >-
-          {{ range(ip_start, ip_end + 1) 
-             | select('not in', (existing_ips.stdout_lines 
-                                   | map('split', '.') 
-                                   | map('last') 
-                                   | map('int') | list)) 
-             | list | first }}
+          {{ range(ip_start, ip_end + 1) | difference(existing_ips_last_octet) | first }}
 
     - name: Build full LXC IP address
       ansible.builtin.set_fact:
@@ -57,7 +52,7 @@
       register: pct_check
       failed_when: pct_check.rc != 0
 
-    - name: Create LXC container on Proxmox host
+    - name: Create LXC container
       ansible.builtin.shell: |
         /usr/sbin/pct create {{ lxc_vmid }} {{ lxc_template }} \
           --hostname {{ lxc_hostname }} \
@@ -76,5 +71,4 @@
         executable: /bin/bash
 
     - name: Show VMID and IP
-      ansible.builtin.debug:
-        msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }} and IP {{ lxc_ip }}"
+      ansible.builti
