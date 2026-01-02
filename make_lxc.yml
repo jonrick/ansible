@@ -1,7 +1,7 @@
 - name: Create LXC on Proxmox node with auto VMID and IP
   hosts: proxmox
   gather_facts: false
-  become: true  # ensures commands run as root on Proxmox host
+  become: true  # run commands as root on Proxmox host
 
   vars:
     lxc_hostname_prefix: "test-lxc"
@@ -24,7 +24,9 @@
 
     - name: Determine next available VMID
       ansible.builtin.set_fact:
-        lxc_vmid: "{{ (existing_vms.stdout_lines | map('int') | max(default=900) + 1) }}"
+        lxc_vmid: >-
+          {{ (existing_vms.stdout_lines | map('int') | list | max) + 1
+             if existing_vms.stdout_lines else 901 }}
 
     - name: Get list of currently assigned LXC IPs
       ansible.builtin.shell: "pct list | awk 'NR>1 {print $6}' | cut -d'/' -f1"
@@ -32,17 +34,17 @@
         executable: /bin/bash
       register: existing_ips
 
-    - name: Determine next available IP
+    - name: Determine next available IP last octet
       ansible.builtin.set_fact:
         lxc_ip_last_octet: >-
-          {{ range(ip_start, ip_end + 1) | select('not in', existing_ips | map('split', '.') | map('last') | map('int')) | list | first }}
+          {{ range(ip_start, ip_end + 1) | select('not in', existing_ips.stdout_lines | map('split', '.') | map('last') | map('int')) | list | first }}
         lxc_ip: "{{ subnet_base }}.{{ lxc_ip_last_octet }}/24"
 
     - name: Set hostname
       ansible.builtin.set_fact:
         lxc_hostname: "{{ lxc_hostname_prefix }}-{{ lxc_vmid }}"
 
-    - name: Ensure pct is available
+    - name: Ensure pct command exists
       ansible.builtin.command: which pct
       register: pct_check
       failed_when: pct_check.rc != 0
