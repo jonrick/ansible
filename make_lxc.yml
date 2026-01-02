@@ -37,10 +37,18 @@
     - name: Determine next available IP last octet
       ansible.builtin.set_fact:
         lxc_ip_last_octet: >-
-          {{ range(ip_start, ip_end + 1) | select('not in', existing_ips.stdout_lines | map('split', '.') | map('last') | map('int')) | list | first }}
+          {{ range(ip_start, ip_end + 1) 
+             | select('not in', (existing_ips.stdout_lines 
+                                   | map('split', '.') 
+                                   | map('last') 
+                                   | map('int') | list)) 
+             | list | first }}
+
+    - name: Build full LXC IP address
+      ansible.builtin.set_fact:
         lxc_ip: "{{ subnet_base }}.{{ lxc_ip_last_octet }}/24"
 
-    - name: Set hostname
+    - name: Set LXC hostname
       ansible.builtin.set_fact:
         lxc_hostname: "{{ lxc_hostname_prefix }}-{{ lxc_vmid }}"
 
