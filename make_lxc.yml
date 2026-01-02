@@ -1,51 +1,21 @@
-- name: Create LXC on Proxmox
+- name: Create a single LXC container on Proxmox
   hosts: proxmox
   gather_facts: false
   become: true
 
   vars:
-    lxc_hostname_prefix: "test-lxc"
+    lxc_vmid: 999
+    lxc_hostname: test-lxc
     lxc_template: "/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
     lxc_cores: 2
     lxc_memory: 1024
     lxc_swap: 512
     lxc_disk: 8
-    lxc_bridge: "vmbr0"
-    subnet_base: "192.168.12"
-    ip_start: 42
-    ip_end: 254
+    lxc_bridge: vmbr0
+    lxc_ip: 192.168.12.42/24
+    gateway: 192.168.12.1
 
   tasks:
-
-    - name: Get list of existing VMIDs
-      ansible.builtin.shell: "pct list | awk 'NR>1 {print $1}'"
-      register: existing_vms
-
-    - name: Determine next available VMID
-      ansible.builtin.set_fact:
-        lxc_vmid: >-
-          {{ (existing_vms.stdout_lines | map('int') | list | max + 1) if existing_vms.stdout_lines else 901 }}
-
-    - name: Get list of currently assigned LXC IPs
-      ansible.builtin.shell: "pct list | awk 'NR>1 {print $6}' | cut -d'/' -f1"
-      register: existing_ips
-
-    - name: Convert existing IP last octets to integers
-      ansible.builtin.set_fact:
-        existing_ips_last_octet: "{{ existing_ips.stdout_lines | map('split', '.') | map('last') | map('int') | list }}"
-
-    - name: Determine next available IP last octet
-      ansible.builtin.set_fact:
-        lxc_ip_last_octet: >-
-          {{ range(ip_start, ip_end + 1) | difference(existing_ips_last_octet) | first }}
-
-    - name: Build full LXC IP address
-      ansible.builtin.set_fact:
-        lxc_ip: "{{ subnet_base }}.{{ lxc_ip_last_octet }}/24"
-
-    - name: Set LXC hostname
-      ansible.builtin.set_fact:
-        lxc_hostname: "{{ lxc_hostname_prefix }}-{{ lxc_vmid }}"
 
     - name: Ensure pct command exists
       ansible.builtin.command: which pct
@@ -54,12 +24,12 @@
 
     - name: Create LXC container
       ansible.builtin.shell: |
-        /usr/sbin/pct create {{ lxc_vmid }} {{ lxc_template }} \
+        pct create {{ lxc_vmid }} {{ lxc_template }} \
           --hostname {{ lxc_hostname }} \
           --cores {{ lxc_cores }} \
           --memory {{ lxc_memory }} \
           --swap {{ lxc_swap }} \
-          --net0 name=eth0,bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ subnet_base }}.1 \
+          --net0 name=eth0,bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ gateway }} \
           --rootfs local:{{ lxc_disk }} \
           --start 0
       args:
@@ -70,6 +40,6 @@
       args:
         executable: /bin/bash
 
-    - name: Show VMID and IP
+    - name: Show LXC info
       ansible.builtin.debug:
         msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }} and IP {{ lxc_ip }}"
