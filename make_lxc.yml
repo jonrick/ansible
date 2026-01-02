@@ -1,0 +1,70 @@
+- name: Create LXC on Proxmox node with auto VMID and IP
+  hosts: proxmox
+  gather_facts: false
+  become: true  # ensures commands run as root on Proxmox host
+
+  vars:
+    lxc_hostname_prefix: "test-lxc"
+    lxc_template: "/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
+    lxc_cores: 2
+    lxc_memory: 1024
+    lxc_swap: 512
+    lxc_disk: 8
+    lxc_bridge: "vmbr0"
+    subnet_base: "192.168.12"    # first three octets of your subnet
+    ip_start: 42                 # starting last octet for LXCs
+    ip_end: 254                  # max last octet
+
+  tasks:
+    - name: Get list of existing VMIDs
+      ansible.builtin.shell: "pct list | awk 'NR>1 {print $1}'"
+      args:
+        executable: /bin/bash
+      register: existing_vms
+
+    - name: Determine next available VMID
+      ansible.builtin.set_fact:
+        lxc_vmid: "{{ (existing_vms.stdout_lines | map('int') | max(default=900) + 1) }}"
+
+    - name: Get list of currently assigned LXC IPs
+      ansible.builtin.shell: "pct list | awk 'NR>1 {print $6}' | cut -d'/' -f1"
+      args:
+        executable: /bin/bash
+      register: existing_ips
+
+    - name: Determine next available IP
+      ansible.builtin.set_fact:
+        lxc_ip_last_octet: >-
+          {{ range(ip_start, ip_end + 1) | select('not in', existing_ips | map('split', '.') | map('last') | map('int')) | list | first }}
+        lxc_ip: "{{ subnet_base }}.{{ lxc_ip_last_octet }}/24"
+
+    - name: Set hostname
+      ansible.builtin.set_fact:
+        lxc_hostname: "{{ lxc_hostname_prefix }}-{{ lxc_vmid }}"
+
+    - name: Ensure pct is available
+      ansible.builtin.command: which pct
+      register: pct_check
+      failed_when: pct_check.rc != 0
+
+    - name: Create LXC container on Proxmox host
+      ansible.builtin.shell: |
+        /usr/sbin/pct create {{ lxc_vmid }} {{ lxc_template }} \
+          --hostname {{ lxc_hostname }} \
+          --cores {{ lxc_cores }} \
+          --memory {{ lxc_memory }} \
+          --swap {{ lxc_swap }} \
+          --net0 name=eth0,bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ subnet_base }}.1 \
+          --rootfs local:{{ lxc_disk }} \
+          --start 0
+      args:
+        executable: /bin/bash
+
+    - name: Start LXC container
+      ansible.builtin.shell: /usr/sbin/pct start {{ lxc_vmid }}
+      args:
+        executable: /bin/bash
+
+    - name: Show VMID and IP
+      ansible.builtin.debug:
+        msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }} and IP {{ lxc_ip }}"
