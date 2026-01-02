@@ -14,6 +14,7 @@
     lxc_bridge: vmbr0
     lxc_ip: 192.168.12.42/24
     gateway: 192.168.12.1
+    lxc_root_password: "lxc-pass"  # <-- Set root password for container
 
   tasks:
 
@@ -31,6 +32,7 @@
           --swap {{ lxc_swap }} \
           --net0 name=eth0,bridge={{ lxc_bridge }},ip={{ lxc_ip }},gw={{ gateway }} \
           --rootfs local:{{ lxc_disk }} \
+          --password {{ lxc_root_password }} \
           --start 0
       args:
         executable: /bin/bash
@@ -42,4 +44,4 @@
 
     - name: Show LXC info
       ansible.builtin.debug:
-        msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }} and IP {{ lxc_ip }}"
+        msg: "Created LXC {{ lxc_hostname }} with VMID {{ lxc_vmid }}, IP {{ lxc_ip }}, root password {{ lxc_root_password }}"
